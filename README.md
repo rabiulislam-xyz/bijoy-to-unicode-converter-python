@@ -11,8 +11,16 @@ Paste Bijoy text and see Unicode output instantly in [the live demo](https://rab
 ```python
 from bijoy_to_unicode import convertBijoyToUnicode
 
-print(convertBijoyToUnicode('1g e‡l© `v‡Ljv cÖwµqv'))
-# → ১ম বর্ষে দাখেলা প্রক্রিয়া
+bijoy = """cvwievwiK Drm‡e Zvwjeyj Bj‡gi AskMÖnY Kvg¨ n‡j, Zvi ZvwiL Zvwjeyj Bj‡gi mgqm~Px jÿ¨ †i‡L
+Ki‡Z n‡e| (Ab¨_vq welqwU Zvwjeyj Bj‡gi A‡MvP‡i ivL‡Z n‡e|) GB †¶‡Î †Kvb cÖKvi Av‡e`b
+Kivi my‡hvM _vK‡e bv|
+c„ôv bs - 3"""
+
+print(convertBijoyToUnicode(bijoy))
+# পারিবারিক উৎসবে তালিবুল ইলমের অংশগ্রহণ কাম্য হলে, তার তারিখ তালিবুল ইলমের সময়সূচী লক্ষ্য রেখে
+# করতে হবে। (অন্যথায় বিষয়টি তালিবুল ইলমের অগোচরে রাখতে হবে।) এই ক্ষেত্রে কোন প্রকার আবেদন
+# করার সুযোগ থাকবে না।
+# পৃষ্ঠা নং - ৩
 ```
 
 URLs and email addresses are detected and passed through unchanged so they are not chewed through by the Latin → Bangla mapping.
