@@ -2,8 +2,16 @@ import re
 
 
 def mb_substr(s, start, length=None, encoding="UTF-8"):
-    u_s = s
-    return (u_s[start:(start + length)] if length else u_s[start:]).encode(encoding)
+    """Return a slice of ``s`` as ``str``.
+
+    The original code returned ``bytes`` (encoded UTF-8); callers compare the
+    result against ``str`` literals like ``'র'`` and ``'\\u09CD'``, so the
+    bytes form silently failed every comparison and the reorder pass became
+    a no-op. ``encoding`` is kept for signature compatibility but unused.
+    """
+    if length is None:
+        return s[start:]
+    return s[start:start + length]
 
 
 preConversionMap = {
@@ -171,7 +179,9 @@ conversionMap = {
     'Ê': 'ণ্ড',
     'Ë': 'ত্ত',
     'Ì': 'ত্থ',
-    'Í': 'ত্ম',
+    'Í': 'ত',  # SutonnyMJ glyph appears as ন্ত conjunct, but in this encoding it's
+              # always written after an explicit halant-providing glyph (š=ন্, ¯=স্),
+              # so emitting just ত yields the correct cluster (ন্ত, স্ত, etc.).
     'Î': 'ত্র',
     'Ï': 'দ্দ',
     'Ð': '-',
@@ -196,7 +206,9 @@ conversionMap = {
     'ã': 'ব্দ',
     'ä': 'ব্ধ',
     'å': 'ভ্র',
-    'æ': 'ম্ন',
+    'æ': 'ু',  # SutonnyMJ "ru" ligature (post-র form of ু-kar) — used in
+              # গুরু/করুন/বিরুদ্ধ/শুরু etc. The Bijoy source already has the
+              # র preceding æ; emitting just ু yields the correct cluster.
     'ç': 'ম্ফ',
     'è': '্ন',
     'é': 'ল্ক',
@@ -206,6 +218,7 @@ conversionMap = {
     'í': 'ল্প',
     'î': 'ল্ফ',
     'ï': 'শু',
+    'ÿ': 'ক্ষ',
     'ð': 'শ্চ',
     'ñ': 'শ্ছ',
     'ò': 'ষ্ণ',
@@ -214,7 +227,7 @@ conversionMap = {
     'õ': 'ষ্ফ',
     'ö': 'স্খ',
     '÷': 'স্ট',
-    'ø': 'স্ন',  # (sn)eho#†ønØ
+    'ø': '্ল',  # SutonnyMJ ্ল conjunct ligature (used in আল্লাহ, উল্লেখ, গ্লাস, …)
     'ù': 'স্ফ',
     'ú': '্প',
     'û': 'হু',
@@ -226,6 +239,9 @@ conversionMap = {
 proConversionMap = {'্্': '্'}
 
 postConversionMap = {
+    # PDF Symbol-font private-use bullets — render them as the standard bullet.
+    '': '•',
+    '': '•',
     # Colon with Number/Space
     '০ঃ': '০:',
     '১ঃ': '১:',
@@ -301,116 +317,159 @@ def IsSpace(c):
     return False
 
 
-def reArrangeUnicodeConvertedText(str_):
-    # mb_internal_encoding("UTF-8") # force multi-byte UTF-8 encoding
-    global proConversionMap
+def _at(s, i):
+    """Safe single-char access — returns '' for out-of-bounds, str otherwise."""
+    if 0 <= i < len(s):
+        return s[i]
+    return ''
 
-    for i in range(len(str_)):
-        #  Change refs
-        if i < (len(str_) - 1) and mbCharAt(str_, i) == 'র' and IsBanglaHalant(
-                mbCharAt(str_, i + 1)) and not IsBanglaHalant(mbCharAt(str_, i - 1)):
+
+def _move_reph(s):
+    """Move a Bangla reph (র + halant, originally appended after its base
+    consonant cluster by Bijoy) to the start of the cluster it belongs to.
+
+    Walks left-to-right, advancing past each rewritten reph so we never
+    revisit it.
+    """
+    out = []
+    i = 0
+    n = len(s)
+    while i < n:
+        if (
+            s[i] == 'র'
+            and _at(s, i + 1) == '্'
+            and _at(s, i - 1) != '্'
+        ):
             j = 1
             while True:
-                if i - j < 0:
+                left = i - j
+                if left < 0:
                     break
-
-                if IsBanglaBanjonborno(mbCharAt(str_, i - j)) and IsBanglaHalant(mbCharAt(str_, i - j - 1)):
+                if IsBanglaBanjonborno(_at(s, left)) and _at(s, left - 1) == '্':
                     j += 2
-                elif j == 1 and IsBanglaKar(mbCharAt(str_, i - j)):
+                elif j == 1 and IsBanglaKar(_at(s, left)):
                     j += 1
                 else:
                     break
 
-            temp = subString(str_, 0, i - j)
-            temp = temp + mbCharAt(str_, i)
-            temp = temp + mbCharAt(str_, i + 1)
-            temp = temp + subString(str_, i - j, i)
-            temp = temp + subString(str_, i + 2, len(str_))
-            str_ = temp
-            i += 1
+            if j >= 1 and (i - j) >= 0 and IsBanglaBanjonborno(_at(s, i - j)):
+                pop_count = j
+                cluster = ''.join(out[-pop_count:]) if pop_count else ''
+                del out[len(out) - pop_count:]
+                out.append('র')
+                out.append('্')
+                out.append(cluster)
+                i += 2
+                continue
+        out.append(s[i])
+        i += 1
+    return ''.join(out)
+
+
+def _swap_halant_after_kar(s):
+    """Vowel-kar/Nukta + Halant + Consonant → Halant + Consonant + Vowel-kar."""
+    out = list(s)
+    i = 1
+    while i < len(out) - 1:
+        if (
+            out[i] == '্'
+            and (IsBanglaKar(out[i - 1]) or IsBanglaNukta(out[i - 1]))
+        ):
+            out[i - 1], out[i], out[i + 1] = out[i], out[i + 1], out[i - 1]
+            i += 2
             continue
+        i += 1
+    return ''.join(out)
 
-    str_ = doCharMap(str_, proConversionMap)
-    for i in range(len(str_)):
-        if i < len(str_) - 1 and mbCharAt(str_, i) == 'র' and IsBanglaHalant(
-                mbCharAt(str_, i + 1)) and not IsBanglaHalant(mbCharAt(str_, i - 1)) and IsBanglaHalant(
-                mbCharAt(str_, i + 2)):
+
+def _swap_ra_halant_kar(s):
+    """RA + Halant + Kar (with no halant before RA) → Kar + RA + Halant."""
+    out = list(s)
+    i = 1
+    while i < len(out) - 1:
+        if (
+            out[i] == '্'
+            and out[i - 1] == 'র'
+            and (i - 2 < 0 or out[i - 2] != '্')
+            and IsBanglaKar(out[i + 1])
+        ):
+            out[i - 1], out[i], out[i + 1] = out[i + 1], out[i - 1], out[i]
+            i += 2
+            continue
+        i += 1
+    return ''.join(out)
+
+
+def _move_pre_kars(s):
+    """Walk pre-kars (ি ৈ ে) past the following consonant cluster so they
+    sit in correct Unicode post-consonant order. Combine ে + া → ো and
+    ে + ৗ → ৌ where they meet across the cluster boundary.
+
+    Each pre-kar is processed exactly once: after relocation, ``i`` advances
+    past both the original position and the cluster, so the relocated kar is
+    never revisited (which previously caused infinite drift to end-of-word).
+    """
+    out = []
+    i = 0
+    n = len(s)
+    while i < n:
+        c = s[i]
+        if IsBanglaPreKar(c) and i + 1 < n and not IsSpace(s[i + 1]):
             j = 1
-            while True:
-                if i - j < 0:
-                    break
-
-                if IsBanglaBanjonborno(mbCharAt(str_, i - j)) and IsBanglaHalant(mbCharAt(str_, i - j - 1)):
+            while (i + j) < n - 1 and IsBanglaBanjonborno(_at(s, i + j)):
+                if _at(s, i + j + 1) == '্':
                     j += 2
-                elif j == 1 and IsBanglaKar(mbCharAt(str_, i - j)):
-                    j += 1
                 else:
                     break
-
-            temp = subString(str_, 0, i - j)
-            temp = temp + mbCharAt(str_, i)
-            temp = temp + mbCharAt(str_, i + 1)
-            temp = temp + subString(str_, i - j, i)
-            temp = temp + subString(str_, i + 2, len(str_))
-            str_ = temp
-            i += 1
-            continue
-
-        # for 'Vowel + HALANT + Consonant' it should be 'HALANT + Consonant + Vowel'
-        if i > 0 and mbCharAt(str_, i) == '\u09CD' and (
-                    IsBanglaKar(mbCharAt(str_, i - 1)) or IsBanglaNukta(mbCharAt(str_, i - 1))) and i < len(str_) - 1:
-            temp = subString(str_, 0, i - 1)
-            temp = temp + mbCharAt(str_, i)
-            temp = temp + mbCharAt(str_, i + 1)
-            temp = temp + mbCharAt(str_, i - 1)
-            temp = temp + subString(str_, i + 2, len(str_))
-            str_ = temp
-
-        # for 'RA (\u09B0) + HALANT + Vowel' it should be 'Vowel + RA (\u09B0) + HALANT'
-        if i > 0 and i < len(str_) - 1 and mbCharAt(str_, i) == '\u09CD' and mbCharAt(str_,
-                                                                                      i - 1) == '\u09B0' and mbCharAt(
-            str_, i - 2) != '\u09CD' and IsBanglaKar(mbCharAt(str_, i + 1)):
-            temp = subString(str_, 0, i - 1)
-            temp = temp + mbCharAt(str_, i + 1)
-            temp = temp + mbCharAt(str_, i - 1)
-            temp = temp + mbCharAt(str_, i)
-            temp = temp + subString(str_, i + 2, len(str_))
-            str_ = temp
-
-        # Change pre-kar to post format suitable for unicode
-        if i < len(str_) - 1 and IsBanglaPreKar(mbCharAt(str_, i)) and IsSpace(mbCharAt(str_, i + 1)) == False:
-            temp = subString(str_, 0, i)
-            j = 1
-            while (i + j) < len(str_) - 1 and IsBanglaBanjonborno(mbCharAt(str_, i + j)):
-                if (i + j) < len(str_) and IsBanglaHalant(mbCharAt(str_, i + j + 1)):
-                    j += 2
-                else:
-                    break
-
-            temp = temp + subString(str_, i + 1, i + j + 1)
+            tail_idx = i + j + 1
             l = 0
-            if mbCharAt(str_, i) == 'ে' and mbCharAt(str_, i + j + 1) == 'া':
-                temp = temp + "ো"
+            if c == 'ে' and _at(s, tail_idx) == 'া':
+                pre_repr = 'ো'
                 l = 1
-            elif mbCharAt(str_, i) == 'ে' and mbCharAt(str_, i + j + 1) == "ৗ":
-                temp = temp + "ৌ"
+            elif c == 'ে' and _at(s, tail_idx) == 'ৗ':
+                pre_repr = 'ৌ'
                 l = 1
             else:
-                temp = temp + mbCharAt(str_, i)
+                pre_repr = c
+            cluster = s[i + 1:i + j + 1]
+            out.append(cluster)
+            out.append(pre_repr)
+            i += j + l + 1
+            continue
+        out.append(c)
+        i += 1
+    return ''.join(out)
 
-            temp = temp + subString(str_, i + j + l + 1, len(str_))
-            str_ = temp
-            i += j
 
-        # nukta should be placed after kars
-        if i < len(str_) - 1 and IsBanglaNukta(mbCharAt(str_, i)) and IsBanglaPostKar(mbCharAt(str_, i + 1)):
-            temp = subString(str_, 0, i)
-            temp = temp + mbCharAt(str_, i + 1)
-            temp = temp + mbCharAt(str_, i)
-            temp = temp + subString(str_, i + 2, len(str_))
-            str_ = temp
+def _move_nukta_after_kar(s):
+    """Nukta belongs after post-kars in Unicode order (nukta + post-kar
+    → post-kar + nukta)."""
+    out = list(s)
+    i = 0
+    while i < len(out) - 1:
+        if IsBanglaNukta(out[i]) and IsBanglaPostKar(out[i + 1]):
+            out[i], out[i + 1] = out[i + 1], out[i]
+            i += 2
+            continue
+        i += 1
+    return ''.join(out)
 
+
+def reArrangeUnicodeConvertedText(str_):
+    """Apply Bijoy→Unicode reordering passes in order. Each pass is a single
+    left-to-right walk with explicit index advancement, so a transform never
+    revisits a slot it just rewrote.
+    """
+    global proConversionMap
+
+    str_ = _move_reph(str_)
+    str_ = doCharMap(str_, proConversionMap)
+    str_ = _swap_halant_after_kar(str_)
+    str_ = _swap_ra_halant_kar(str_)
+    str_ = _move_pre_kars(str_)
+    str_ = _move_nukta_after_kar(str_)
     return str_
+
 
 def doCharMap(text, charMap):
     for k, v in charMap.items():
@@ -433,34 +492,72 @@ def subString(string, from_, to):
 
 
 def refactor_broken_kars(s):
-    a = []
-    for i in range(len(s)):
-        a.append(s[i])
+    """Swap any pre-kar that ended up *before* its consonant into normal Unicode
+    order. Only acts on the broken pattern (pre-kar followed by a consonant);
+    pre-kars already in correct post-consonant position are left alone.
 
-    b = a[:]
-    for i in range(len(a)):
-        if a[i] == 'ি':
-            b[i] = b[i+1]
-            b[i+1] = 'ি'
-        elif a[i] == 'ৈ':
-            b[i] = b[i+1]
-            b[i+1] = 'ৈ'
-        elif a[i] == 'ে':
-            b[i] = b[i + 1]
-            b[i + 1] = 'ে'
+    Acts as a final safety net for cases ``reArrangeUnicodeConvertedText`` may
+    miss (e.g. pre-kar adjacent to a non-cluster boundary).
+    """
+    PRE_KARS = ('ি', 'ৈ', 'ে')
+    a = list(s)
+    last = len(a) - 1
+    i = 0
+    while i < last:
+        if a[i] in PRE_KARS and IsBanglaBanjonborno(a[i + 1]):
+            a[i], a[i + 1] = a[i + 1], a[i]
+            i += 2
+        else:
+            i += 1
+    return ''.join(a)
 
-    return ''.join(b)
+
+# Patterns we never want to remap as Bijoy: URLs, emails, plain Latin words
+# embedded in Bangla text (English brand names, file extensions, etc.).
+_PROTECTED_RE = re.compile(
+    r'https?://\S+'
+    r'|ftp://\S+'
+    r'|www\.[^\s,;()<>"\'ঀ-৿]+'
+    r'|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
+)
+
+
+_SENTINEL_BASE = 0xE000  # Private Use Area — never a Bijoy input or output glyph
+
+
+def _protect_ascii_runs(text):
+    """Replace URLs/emails with single-codepoint PUA sentinels so the Bijoy
+    mapper does not chew through their Latin letters. Returns
+    ``(masked_text, restorer)``. Caller must invoke ``restorer`` once on the
+    final converted string.
+    """
+    spans = []
+
+    def stash(m):
+        idx = len(spans)
+        spans.append(m.group(0))
+        return chr(_SENTINEL_BASE + idx)
+
+    masked = _PROTECTED_RE.sub(stash, text)
+
+    def restore(s):
+        out = s
+        for idx, original in enumerate(spans):
+            out = out.replace(chr(_SENTINEL_BASE + idx), original)
+        return out
+
+    return masked, restore
 
 
 # main conversion function
 def convertBijoyToUnicode(srcString):
     global preConversionMap, conversionMap, postConversionMap
+    srcString, restore = _protect_ascii_runs(srcString)
     srcString = doCharMap(srcString, preConversionMap)
     srcString = doCharMap(srcString, conversionMap)
     srcString = reArrangeUnicodeConvertedText(srcString)
     srcString = doCharMap(srcString, postConversionMap)
-
-    srcString = refactor_broken_kars(srcString)
+    srcString = restore(srcString)
     return srcString
 
 
