@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bijoy → Unicode Bangla converter</title>
+<meta name="description" content="Paste Bijoy / SutonnyMJ text and get Unicode Bangla instantly. Runs entirely in your browser via Pyodide — no upload, no server.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Bengali:wght@400;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #fafafa;
+    --panel: #fff;
+    --rule: #e3e3e6;
+    --fg: #1a1a1c;
+    --muted: #6a6a72;
+    --accent: #1f6feb;
+    --accent-fg: #fff;
+    --bad: #b42318;
+    --shadow: 0 1px 2px rgba(0,0,0,0.04);
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg); color: var(--fg);
+    font-family: "Inter", -apple-system, "Segoe UI", system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+    min-height: 100%;
+  }
+  header {
+    padding: 28px 24px 18px; max-width: 1080px; margin: 0 auto;
+  }
+  header h1 { font-size: 22px; font-weight: 600; margin: 0; }
+  header p { margin: 6px 0 0; color: var(--muted); font-size: 14px; }
+  header a { color: var(--accent); text-decoration: none; }
+  header a:hover { text-decoration: underline; }
+  main {
+    max-width: 1080px; margin: 0 auto; padding: 0 24px 60px;
+  }
+  .toolbar {
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+    padding: 12px 0;
+  }
+  .toolbar button {
+    appearance: none; border: 1px solid var(--rule); background: var(--panel);
+    color: var(--fg); padding: 6px 14px; border-radius: 7px; cursor: pointer;
+    font: inherit; font-size: 13px; box-shadow: var(--shadow);
+  }
+  .toolbar button:hover { border-color: #b8b8be; }
+  .toolbar button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+  .toolbar button.primary:hover { filter: brightness(1.05); }
+  .toolbar .status {
+    margin-left: auto; font-size: 13px; color: var(--muted);
+  }
+  .toolbar .status.ready { color: #18794e; }
+  .toolbar .status.error { color: var(--bad); }
+  .panes {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
+    min-height: 60vh;
+  }
+  @media (max-width: 720px) {
+    .panes { grid-template-columns: 1fr; }
+  }
+  .pane {
+    background: var(--panel); border: 1px solid var(--rule);
+    border-radius: var(--radius); box-shadow: var(--shadow);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .pane h2 {
+    margin: 0; padding: 10px 14px; font-size: 12px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--muted); border-bottom: 1px solid var(--rule);
+    background: #f7f7f9;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .pane h2 .copy {
+    margin-left: auto; appearance: none; border: 1px solid var(--rule);
+    background: #fff; color: var(--fg); padding: 2px 10px; border-radius: 6px;
+    cursor: pointer; font: inherit; font-size: 11px; text-transform: none;
+    letter-spacing: normal;
+  }
+  .pane h2 .copy:hover { border-color: #b8b8be; }
+  textarea, .output {
+    flex: 1; width: 100%;
+    border: 0; outline: 0; padding: 14px 16px;
+    font-size: 15px; line-height: 1.6;
+    background: transparent; color: var(--fg); resize: none;
+  }
+  textarea {
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 14px;
+  }
+  .output {
+    font-family: "Noto Sans Bengali", "Kalpurush", "SolaimanLipi", serif;
+    white-space: pre-wrap; word-break: break-word; overflow-y: auto;
+  }
+  .output:empty::before { content: "Output will appear here…"; color: #a8a8b0; }
+  footer {
+    max-width: 1080px; margin: 0 auto; padding: 20px 24px 40px;
+    color: var(--muted); font-size: 13px; text-align: center;
+  }
+  footer a { color: inherit; text-decoration: underline; text-decoration-color: var(--rule); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Bijoy → Unicode Bangla converter</h1>
+  <p>Paste Bijoy / SutonnyMJ text on the left. Unicode Bangla appears on the right. Runs entirely in your browser — nothing is uploaded. Source on <a href="https://github.com/rabiulislam-xyz/bijoy-to-unicode-converter-python">GitHub</a>.</p>
+</header>
+
+<main>
+  <div class="toolbar">
+    <button id="sample" type="button">Load sample</button>
+    <button id="clear" type="button">Clear</button>
+    <span id="status" class="status">Loading Python…</span>
+  </div>
+  <div class="panes">
+    <section class="pane">
+      <h2>
+        Bijoy input
+        <button class="copy" id="copy-in" type="button">Copy</button>
+      </h2>
+      <textarea id="input" spellcheck="false" autocomplete="off" placeholder="Paste Bijoy / SutonnyMJ text here…"></textarea>
+    </section>
+    <section class="pane">
+      <h2>
+        Unicode Bangla output
+        <button class="copy" id="copy-out" type="button">Copy</button>
+      </h2>
+      <div class="output" id="output" lang="bn"></div>
+    </section>
+  </div>
+</main>
+
+<footer>
+  Bijoy glyph map tuned for SutonnyMJ. <a href="https://github.com/rabiulislam-xyz/bijoy-to-unicode-converter-python/blob/master/README.md">README</a> · <a href="https://github.com/rabiulislam-xyz/bijoy-to-unicode-converter-python/blob/master/bijoy_to_unicode.py">source</a>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/pyodide/v0.28.3/full/pyodide.js"></script>
+<script>
+  const SAMPLE = "1g e‡l© `v‡Ljv cÖwµqv\n1447/48 wnt (2026/27 Ct) wkÿvel©\n\nÒAvjøvn bv Kiæb, A¯^vfvweK gy`ªvùxwZ n‡j gvwmK Ahxdv Av‡iv e„w×i cÖ‡qvRb n‡Z cv‡i|Ó\n\nch©šÍ, mvÿvr, cixÿv, kvIqvj, cÖwZôvb|";
+
+  const inputEl = document.getElementById("input");
+  const outputEl = document.getElementById("output");
+  const statusEl = document.getElementById("status");
+  const sampleBtn = document.getElementById("sample");
+  const clearBtn = document.getElementById("clear");
+  const copyInBtn = document.getElementById("copy-in");
+  const copyOutBtn = document.getElementById("copy-out");
+
+  let pyodide = null;
+  let convert = null;
+  let pending = null;
+
+  function setStatus(msg, cls) {
+    statusEl.textContent = msg;
+    statusEl.className = "status" + (cls ? " " + cls : "");
+  }
+
+  function runConvert() {
+    if (!convert) return;
+    try {
+      const text = inputEl.value;
+      const result = convert(text);
+      outputEl.textContent = result;
+    } catch (err) {
+      console.error(err);
+      outputEl.textContent = "Conversion failed: " + (err.message || err);
+    }
+  }
+
+  function scheduleConvert() {
+    if (pending) clearTimeout(pending);
+    pending = setTimeout(runConvert, 80);
+  }
+
+  inputEl.addEventListener("input", scheduleConvert);
+
+  sampleBtn.addEventListener("click", () => {
+    inputEl.value = SAMPLE;
+    runConvert();
+  });
+
+  clearBtn.addEventListener("click", () => {
+    inputEl.value = "";
+    outputEl.textContent = "";
+    inputEl.focus();
+  });
+
+  async function copyText(text, btn) {
+    try {
+      await navigator.clipboard.writeText(text);
+      const original = btn.textContent;
+      btn.textContent = "Copied";
+      setTimeout(() => (btn.textContent = original), 1200);
+    } catch (e) {
+      console.error(e);
+    }
+  }
+  copyInBtn.addEventListener("click", () => copyText(inputEl.value, copyInBtn));
+  copyOutBtn.addEventListener("click", () => copyText(outputEl.textContent, copyOutBtn));
+
+  async function bootstrap() {
+    try {
+      pyodide = await loadPyodide({
+        indexURL: "https://cdn.jsdelivr.net/pyodide/v0.28.3/full/",
+      });
+      setStatus("Loading converter…");
+
+      // Fetch the converter source from the same origin as this page.
+      const src = await fetch("bijoy_to_unicode.py", { cache: "no-cache" }).then(
+        (r) => {
+          if (!r.ok) throw new Error("Failed to fetch bijoy_to_unicode.py");
+          return r.text();
+        }
+      );
+      pyodide.FS.writeFile("/home/pyodide/bijoy_to_unicode.py", src);
+      pyodide.runPython("import sys; sys.path.insert(0, '/home/pyodide')");
+      pyodide.runPython("from bijoy_to_unicode import convertBijoyToUnicode");
+
+      convert = (text) => {
+        pyodide.globals.set("_in", text);
+        return pyodide.runPython("convertBijoyToUnicode(_in)");
+      };
+
+      setStatus("Ready", "ready");
+      runConvert();
+    } catch (err) {
+      console.error(err);
+      setStatus("Failed to load: " + (err.message || err), "error");
+    }
+  }
+
+  bootstrap();
+</script>
+</body>
+</html>
