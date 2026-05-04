@@ -1,6 +1,10 @@
 # bijoy-to-unicode-converter-python
 
+[![Try it in your browser](https://img.shields.io/badge/Try_it-online_demo-1f6feb?style=for-the-badge)](https://rabiulislam-xyz.github.io/bijoy-to-unicode-converter-python/)
+
 Convert text typed in **Bijoy / SutonnyMJ** (an ASCII-mapped Bangla font encoding) to **Unicode Bangla**.
+
+Paste Bijoy text and see Unicode output instantly in [the live demo](https://rabiulislam-xyz.github.io/bijoy-to-unicode-converter-python/) — runs entirely in your browser via Pyodide, nothing is uploaded.
 
 ## Usage
 
